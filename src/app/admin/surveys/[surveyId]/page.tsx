@@ -94,7 +94,6 @@ export default function SurveyEditPage() {
   }
 
   async function deleteQuestion(questionId: string) {
-    const q = survey?.questions.find((qq) => qq.id === questionId);
     const hasTargetingRules = survey?.questions.some(
       (qq) => qq.jumpRules.some((r) => r.targetQuestionId === questionId)
     );
@@ -102,7 +101,12 @@ export default function SurveyEditPage() {
       ? "该题目被其他题目的跳转规则引用，删除后相关规则将被自动清除。确定删除？"
       : "确定删除此题目？";
     if (!confirm(msg)) return;
-    await fetch(`/api/surveys/${surveyId}/questions/${questionId}`, { method: "DELETE" });
+    const res = await fetch(`/api/surveys/${surveyId}/questions/${questionId}`, { method: "DELETE" });
+    const json = await res.json();
+    if (json.removedRules?.length > 0) {
+      const details = json.removedRules.map((r: { sourceQuestion: string }) => `「${r.sourceQuestion}」`).join("、");
+      alert(`以下题目的跳转规则已被清除，请重新配置：${details}`);
+    }
     fetchSurvey();
   }
 
@@ -401,15 +405,15 @@ function QuestionFormModal({
   const [type, setType] = useState(question?.type || "single_choice");
   const [questionTitle, setQuestionTitle] = useState(question?.title || "");
   const [required, setRequired] = useState(question?.required ?? true);
-  const [options, setOptions] = useState<string[]>(
-    question?.options.map((o) => o.text) || ["", ""]
+  const [options, setOptions] = useState<{ id?: string; text: string }[]>(
+    question?.options.map((o) => ({ id: o.id, text: o.text })) || [{ text: "" }, { text: "" }]
   );
   const [submitting, setSubmitting] = useState(false);
 
   const isChoiceType = type === "single_choice" || type === "multiple_choice";
 
   function addOption() {
-    setOptions([...options, ""]);
+    setOptions([...options, { text: "" }]);
   }
 
   function removeOption(idx: number) {
@@ -419,14 +423,14 @@ function QuestionFormModal({
 
   function updateOption(idx: number, value: string) {
     const newOpts = [...options];
-    newOpts[idx] = value;
+    newOpts[idx] = { ...newOpts[idx], text: value };
     setOptions(newOpts);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!questionTitle.trim()) return;
-    if (isChoiceType && options.some((o) => !o.trim())) {
+    if (isChoiceType && options.some((o) => !o.text.trim())) {
       alert("选项内容不能为空");
       return;
     }
@@ -438,17 +442,21 @@ function QuestionFormModal({
       required,
     };
     if (isChoiceType) {
-      body.options = options.map((text) => ({ text }));
+      body.options = options.map((o) => ({ id: o.id, text: o.text }));
     } else {
       body.options = [];
     }
 
     if (question) {
-      await fetch(`/api/surveys/${surveyId}/questions/${question.id}`, {
+      const res = await fetch(`/api/surveys/${surveyId}/questions/${question.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
+      const json = await res.json();
+      if (json.removedRules?.length > 0) {
+        alert(`提示：因删除选项，${json.removedRules.length} 条跳转规则已被自动清除，请检查跳转配置。`);
+      }
     } else {
       await fetch(`/api/surveys/${surveyId}/questions`, {
         method: "POST",
@@ -506,10 +514,10 @@ function QuestionFormModal({
               <label className="block text-sm font-medium text-gray-700 mb-2">选项</label>
               <div className="space-y-2">
                 {options.map((opt, idx) => (
-                  <div key={idx} className="flex gap-2">
+                  <div key={opt.id || `new-${idx}`} className="flex gap-2">
                     <input
                       type="text"
-                      value={opt}
+                      value={opt.text}
                       onChange={(e) => updateOption(idx, e.target.value)}
                       className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm"
                       placeholder={`选项 ${idx + 1}`}

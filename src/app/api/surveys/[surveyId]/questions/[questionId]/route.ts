@@ -19,45 +19,95 @@ export async function PUT(request: NextRequest, { params }: Params) {
     include: { options: { orderBy: { order: "asc" } }, jumpRules: true },
   });
 
-  if (options !== undefined) {
-    await prisma.questionOption.deleteMany({ where: { questionId } });
-    await prisma.questionOption.createMany({
-      data: options.map((opt: { text: string }, idx: number) => ({
-        questionId,
-        text: opt.text,
-        order: idx,
-      })),
-    });
+  let removedRules: { id: string; optionId: string; targetQuestionId: string }[] = [];
 
-    const newOptions = await prisma.questionOption.findMany({ where: { questionId } });
-    const newOptionIds = new Set(newOptions.map((o) => o.id));
-    const invalidRules = question.jumpRules.filter((r) => !newOptionIds.has(r.optionId));
-    if (invalidRules.length > 0) {
-      await prisma.jumpRule.deleteMany({
-        where: { id: { in: invalidRules.map((r) => r.id) } },
+  if (options !== undefined) {
+    const incomingOptions: { id?: string; text: string }[] = options;
+    const existingOptions = question.options;
+    const existingIds = new Set(existingOptions.map((o) => o.id));
+
+    const keptIds = new Set<string>();
+    for (const opt of incomingOptions) {
+      if (opt.id && existingIds.has(opt.id)) {
+        keptIds.add(opt.id);
+      }
+    }
+
+    const deletedOptionIds = existingOptions
+      .filter((o) => !keptIds.has(o.id))
+      .map((o) => o.id);
+
+    if (deletedOptionIds.length > 0) {
+      await prisma.questionOption.deleteMany({
+        where: { id: { in: deletedOptionIds } },
       });
+
+      removedRules = question.jumpRules.filter((r) =>
+        deletedOptionIds.includes(r.optionId)
+      );
+      if (removedRules.length > 0) {
+        await prisma.jumpRule.deleteMany({
+          where: { id: { in: removedRules.map((r) => r.id) } },
+        });
+      }
+    }
+
+    for (let idx = 0; idx < incomingOptions.length; idx++) {
+      const opt = incomingOptions[idx];
+      if (opt.id && keptIds.has(opt.id)) {
+        await prisma.questionOption.update({
+          where: { id: opt.id },
+          data: { text: opt.text, order: idx },
+        });
+      } else {
+        await prisma.questionOption.create({
+          data: { questionId, text: opt.text, order: idx },
+        });
+      }
     }
 
     const updated = await prisma.question.findUnique({
       where: { id: questionId },
       include: { options: { orderBy: { order: "asc" } }, jumpRules: true },
     });
-    return NextResponse.json({ success: true, data: updated });
+    return NextResponse.json({
+      success: true,
+      data: updated,
+      removedRules: removedRules.map((r) => ({
+        optionId: r.optionId,
+        targetQuestionId: r.targetQuestionId,
+      })),
+    });
   }
 
   if (type !== undefined && type === "text") {
-    await prisma.jumpRule.deleteMany({ where: { questionId } });
+    removedRules = question.jumpRules;
+    if (removedRules.length > 0) {
+      await prisma.jumpRule.deleteMany({ where: { questionId } });
+    }
   }
 
   const result = await prisma.question.findUnique({
     where: { id: questionId },
     include: { options: { orderBy: { order: "asc" } }, jumpRules: true },
   });
-  return NextResponse.json({ success: true, data: result });
+  return NextResponse.json({
+    success: true,
+    data: result,
+    removedRules: removedRules.map((r) => ({
+      optionId: r.optionId,
+      targetQuestionId: r.targetQuestionId,
+    })),
+  });
 }
 
 export async function DELETE(request: NextRequest, { params }: Params) {
   const { surveyId, questionId } = await params;
+
+  const targetingRules = await prisma.jumpRule.findMany({
+    where: { targetQuestionId: questionId },
+    include: { question: { select: { title: true } } },
+  });
 
   await prisma.jumpRule.deleteMany({
     where: { targetQuestionId: questionId },
@@ -65,5 +115,11 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
   await prisma.question.delete({ where: { id: questionId } });
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({
+    success: true,
+    removedRules: targetingRules.map((r) => ({
+      sourceQuestion: r.question.title,
+      optionId: r.optionId,
+    })),
+  });
 }

@@ -230,7 +230,7 @@ function ExportModal({ surveyId, onClose }: { surveyId: string; onClose: () => v
   const [format, setFormat] = useState<"csv" | "xlsx">("xlsx");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [status, setStatus] = useState<"" | "complete" | "partial">("");
+  const [status, setStatus] = useState<"" | "completed" | "partial">("");
   const [exporting, setExporting] = useState(false);
 
   async function handleExport() {
@@ -314,12 +314,12 @@ function ExportModal({ surveyId, onClose }: { surveyId: string; onClose: () => v
             <label className="block text-sm font-medium text-gray-700 mb-1">完成状态</label>
             <select
               value={status}
-              onChange={(e) => setStatus(e.target.value as "" | "complete" | "partial")}
+              onChange={(e) => setStatus(e.target.value as "" | "completed" | "partial")}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
             >
               <option value="">全部</option>
-              <option value="complete">完整回答（回答了所有题目）</option>
-              <option value="partial">部分回答（有跳过的题目）</option>
+              <option value="completed">已完成</option>
+              <option value="partial">未完成</option>
             </select>
           </div>
         </div>

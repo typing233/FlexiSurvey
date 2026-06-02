@@ -63,6 +63,7 @@ model Response {
   surveyId    String
   survey      Survey   @relation(fields: [surveyId], references: [id], onDelete: Cascade)
   respondent  String
+  status      String   @default("completed")
   submittedAt DateTime @default(now())
   answers     Answer[]
 

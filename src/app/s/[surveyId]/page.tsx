@@ -1,11 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 interface QuestionOption {
   id: string;
   text: string;
+}
+
+interface JumpRule {
+  id: string;
+  optionId: string;
+  targetQuestionId: string;
 }
 
 interface Question {
@@ -14,6 +20,7 @@ interface Question {
   title: string;
   required: boolean;
   options: QuestionOption[];
+  jumpRules: JumpRule[];
 }
 
 interface Survey {
@@ -21,7 +28,10 @@ interface Survey {
   title: string;
   description: string;
   status: string;
+  isPublic: boolean;
+  maxResponses: number | null;
   questions: Question[];
+  _count: { responses: number };
 }
 
 export default function SurveyFillPage() {
@@ -33,18 +43,57 @@ export default function SurveyFillPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [accessError, setAccessError] = useState<string>("");
 
   useEffect(() => {
     async function load() {
       const res = await fetch(`/api/surveys/${surveyId}`);
       const json = await res.json();
       if (json.success && json.data.status === "published") {
-        setSurvey(json.data);
+        const data = json.data;
+        if (!data.isPublic) {
+          setAccessError("该问卷未开放公开访问");
+        } else if (data.maxResponses && data._count.responses >= data.maxResponses) {
+          setAccessError("该问卷已达到收集数量上限");
+        } else {
+          setSurvey(data);
+        }
       }
       setLoading(false);
     }
     load();
   }, [surveyId]);
+
+  const visibleQuestions = useMemo(() => {
+    if (!survey) return [];
+    const questions = survey.questions;
+    const visible: Question[] = [];
+    let i = 0;
+    while (i < questions.length) {
+      const q = questions[i];
+      visible.push(q);
+
+      const val = answers[q.id];
+      let jumped = false;
+      if (val && q.jumpRules.length > 0 && q.type === "single_choice") {
+        try {
+          const selectedOptionId = JSON.parse(val);
+          const rule = q.jumpRules.find((r) => r.optionId === selectedOptionId);
+          if (rule) {
+            const targetIdx = questions.findIndex((qq) => qq.id === rule.targetQuestionId);
+            if (targetIdx > i) {
+              i = targetIdx;
+              jumped = true;
+            }
+          }
+        } catch {}
+      }
+      if (!jumped) {
+        i++;
+      }
+    }
+    return visible;
+  }, [survey, answers]);
 
   function setAnswer(questionId: string, value: string) {
     setAnswers((prev) => ({ ...prev, [questionId]: value }));
@@ -65,8 +114,10 @@ export default function SurveyFillPage() {
   function validate(): boolean {
     if (!survey) return false;
     const newErrors: Record<string, string> = {};
+    const visibleIds = new Set(visibleQuestions.map((q) => q.id));
     for (const q of survey.questions) {
       if (!q.required) continue;
+      if (!visibleIds.has(q.id)) continue;
       const val = answers[q.id];
       if (q.type === "text") {
         if (!val || val.trim() === "") {
@@ -91,8 +142,9 @@ export default function SurveyFillPage() {
     if (!validate() || !survey) return;
     setSubmitting(true);
 
+    const visibleIds = new Set(visibleQuestions.map((q) => q.id));
     const formattedAnswers = survey.questions
-      .filter((q) => answers[q.id])
+      .filter((q) => visibleIds.has(q.id) && answers[q.id])
       .map((q) => ({
         questionId: q.id,
         value: answers[q.id],
@@ -121,6 +173,16 @@ export default function SurveyFillPage() {
     );
   }
 
+  if (accessError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-500 text-lg">{accessError}</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!survey) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -142,7 +204,7 @@ export default function SurveyFillPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {survey.questions.map((q, idx) => (
+          {visibleQuestions.map((q, idx) => (
             <div
               key={q.id}
               className="bg-white rounded-xl shadow-sm border border-gray-200 p-6"

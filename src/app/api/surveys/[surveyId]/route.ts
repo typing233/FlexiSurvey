@@ -10,7 +10,10 @@ export async function GET(request: NextRequest, { params }: Params) {
     include: {
       questions: {
         orderBy: { order: "asc" },
-        include: { options: { orderBy: { order: "asc" } } },
+        include: {
+          options: { orderBy: { order: "asc" } },
+          jumpRules: true,
+        },
       },
       _count: { select: { responses: true } },
     },
@@ -27,12 +30,14 @@ export async function GET(request: NextRequest, { params }: Params) {
 export async function PUT(request: NextRequest, { params }: Params) {
   const { surveyId } = await params;
   const body = await request.json();
-  const { title, description } = body;
+  const { title, description, isPublic, maxResponses } = body;
   const survey = await prisma.survey.update({
     where: { id: surveyId },
     data: {
       ...(title !== undefined && { title: title.trim() }),
       ...(description !== undefined && { description: description.trim() }),
+      ...(isPublic !== undefined && { isPublic }),
+      ...(maxResponses !== undefined && { maxResponses: maxResponses === null ? null : Number(maxResponses) }),
     },
   });
   return NextResponse.json({ success: true, data: survey });

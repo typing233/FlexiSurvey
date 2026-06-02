@@ -11,6 +11,12 @@ interface QuestionOption {
   order: number;
 }
 
+interface JumpRule {
+  id: string;
+  optionId: string;
+  targetQuestionId: string;
+}
+
 interface Question {
   id: string;
   type: string;
@@ -18,6 +24,7 @@ interface Question {
   required: boolean;
   order: number;
   options: QuestionOption[];
+  jumpRules: JumpRule[];
 }
 
 interface Survey {
@@ -25,6 +32,8 @@ interface Survey {
   title: string;
   description: string;
   status: string;
+  isPublic: boolean;
+  maxResponses: number | null;
   questions: Question[];
   _count: { responses: number };
 }
@@ -40,6 +49,8 @@ export default function SurveyEditPage() {
   const [description, setDescription] = useState("");
   const [showQuestionForm, setShowQuestionForm] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
+  const [showJumpRules, setShowJumpRules] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
 
   const fetchSurvey = useCallback(async () => {
     const res = await fetch(`/api/surveys/${surveyId}`);
@@ -130,6 +141,12 @@ export default function SurveyEditPage() {
           </span>
         </div>
         <div className="flex gap-2">
+          <button
+            onClick={() => setShowSettings(true)}
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            设置
+          </button>
           <Link
             href={`/admin/surveys/${surveyId}/preview`}
             className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
@@ -206,6 +223,10 @@ export default function SurveyEditPage() {
               <p className="text-sm text-gray-500">
                 {survey.description || "暂无描述"}
               </p>
+              <div className="flex gap-4 mt-2 text-xs text-gray-400">
+                <span>{survey.isPublic ? "公开访问" : "未公开"}</span>
+                <span>{survey.maxResponses ? `收集上限: ${survey.maxResponses}` : "无收集上限"}</span>
+              </div>
             </div>
             {isDraft && (
               <button
@@ -253,6 +274,11 @@ export default function SurveyEditPage() {
                     {q.required && (
                       <span className="text-red-500 text-xs">必填</span>
                     )}
+                    {q.jumpRules.length > 0 && (
+                      <span className="px-1.5 py-0.5 text-xs bg-amber-50 text-amber-600 rounded">
+                        有跳转规则
+                      </span>
+                    )}
                   </div>
                   <p className="font-medium">{q.title}</p>
                   {q.options.length > 0 && (
@@ -261,6 +287,11 @@ export default function SurveyEditPage() {
                         <div key={opt.id} className="text-sm text-gray-600 flex items-center gap-2">
                           <span className="w-3 h-3 border border-gray-300 rounded-sm inline-block flex-shrink-0" />
                           {opt.text}
+                          {q.jumpRules.find((r) => r.optionId === opt.id) && (
+                            <span className="text-xs text-amber-500">
+                              → 跳至 Q{survey.questions.findIndex((qq) => qq.id === q.jumpRules.find((r) => r.optionId === opt.id)?.targetQuestionId) + 1}
+                            </span>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -268,6 +299,14 @@ export default function SurveyEditPage() {
                 </div>
                 {isDraft && (
                   <div className="flex gap-1 ml-4">
+                    {(q.type === "single_choice") && (
+                      <button
+                        onClick={() => setShowJumpRules(q.id)}
+                        className="px-2 py-1 text-xs border border-amber-200 text-amber-600 rounded hover:bg-amber-50"
+                      >
+                        跳转
+                      </button>
+                    )}
                     <button
                       onClick={() => moveQuestion(q.id, "up")}
                       disabled={idx === 0}
@@ -309,6 +348,28 @@ export default function SurveyEditPage() {
           question={editingQuestion}
           onClose={() => { setShowQuestionForm(false); setEditingQuestion(null); }}
           onSaved={() => { setShowQuestionForm(false); setEditingQuestion(null); fetchSurvey(); }}
+        />
+      )}
+
+      {/* Jump Rule Modal */}
+      {showJumpRules && (
+        <JumpRuleModal
+          surveyId={surveyId}
+          question={survey.questions.find((q) => q.id === showJumpRules)!}
+          allQuestions={survey.questions}
+          onClose={() => setShowJumpRules(null)}
+          onSaved={() => { setShowJumpRules(null); fetchSurvey(); }}
+        />
+      )}
+
+      {/* Settings Modal */}
+      {showSettings && (
+        <SettingsModal
+          surveyId={surveyId}
+          isPublic={survey.isPublic}
+          maxResponses={survey.maxResponses}
+          onClose={() => setShowSettings(false)}
+          onSaved={() => { setShowSettings(false); fetchSurvey(); }}
         />
       )}
     </div>
@@ -481,6 +542,210 @@ function QuestionFormModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+function JumpRuleModal({
+  surveyId,
+  question,
+  allQuestions,
+  onClose,
+  onSaved,
+}: {
+  surveyId: string;
+  question: Question;
+  allQuestions: Question[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [rules, setRules] = useState<Record<string, string>>(() => {
+    const map: Record<string, string> = {};
+    for (const rule of question.jumpRules) {
+      map[rule.optionId] = rule.targetQuestionId;
+    }
+    return map;
+  });
+  const [saving, setSaving] = useState(false);
+
+  const laterQuestions = allQuestions.filter((q) => q.order > question.order);
+
+  async function handleSave() {
+    setSaving(true);
+
+    for (const existingRule of question.jumpRules) {
+      if (!rules[existingRule.optionId]) {
+        await fetch(`/api/surveys/${surveyId}/questions/${question.id}/rules`, {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ruleId: existingRule.id }),
+        });
+      }
+    }
+
+    for (const [optionId, targetQuestionId] of Object.entries(rules)) {
+      if (!targetQuestionId) continue;
+      await fetch(`/api/surveys/${surveyId}/questions/${question.id}/rules`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ optionId, targetQuestionId }),
+      });
+    }
+
+    setSaving(false);
+    onSaved();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
+        <h3 className="text-lg font-semibold mb-2">配置跳转规则</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          为「{question.title}」的每个选项设置跳转目标（留空表示顺序显示下一题）
+        </p>
+
+        <div className="space-y-3">
+          {question.options.map((opt) => (
+            <div key={opt.id} className="flex items-center gap-3">
+              <span className="text-sm flex-shrink-0 w-32 truncate" title={opt.text}>
+                选{opt.text}
+              </span>
+              <span className="text-sm text-gray-400">→</span>
+              <select
+                value={rules[opt.id] || ""}
+                onChange={(e) =>
+                  setRules((prev) => ({ ...prev, [opt.id]: e.target.value }))
+                }
+                className="flex-1 px-2 py-1.5 border border-gray-300 rounded-lg text-sm"
+              >
+                <option value="">顺序下一题</option>
+                {laterQuestions.map((q) => {
+                  const qIdx = allQuestions.findIndex((qq) => qq.id === q.id);
+                  return (
+                    <option key={q.id} value={q.id}>
+                      跳至 Q{qIdx + 1}: {q.title.substring(0, 20)}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          ))}
+        </div>
+
+        {laterQuestions.length === 0 && (
+          <p className="text-sm text-amber-500 mt-3">
+            当前题目之后没有其他题目，无法配置跳转
+          </p>
+        )}
+
+        <div className="flex gap-3 pt-4 mt-4 border-t">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {saving ? "保存中..." : "保存规则"}
+          </button>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            取消
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsModal({
+  surveyId,
+  isPublic,
+  maxResponses,
+  onClose,
+  onSaved,
+}: {
+  surveyId: string;
+  isPublic: boolean;
+  maxResponses: number | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [pub, setPub] = useState(isPublic);
+  const [limit, setLimit] = useState(maxResponses?.toString() || "");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    await fetch(`/api/surveys/${surveyId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        isPublic: pub,
+        maxResponses: limit.trim() ? parseInt(limit) : null,
+      }),
+    });
+    setSaving(false);
+    onSaved();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+        <h3 className="text-lg font-semibold mb-4">问卷设置</h3>
+
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-700">公开访问</p>
+              <p className="text-xs text-gray-500">关闭后问卷将无法被填写</p>
+            </div>
+            <button
+              onClick={() => setPub(!pub)}
+              className={`relative w-11 h-6 rounded-full transition-colors ${
+                pub ? "bg-indigo-600" : "bg-gray-300"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
+                  pub ? "translate-x-5" : ""
+                }`}
+              />
+            </button>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              收集数量上限
+            </label>
+            <input
+              type="number"
+              min="1"
+              value={limit}
+              onChange={(e) => setLimit(e.target.value)}
+              placeholder="不限制"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+            />
+            <p className="text-xs text-gray-500 mt-1">留空表示不限制收集数量</p>
+          </div>
+        </div>
+
+        <div className="flex gap-3 pt-4 mt-4 border-t">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {saving ? "保存中..." : "保存设置"}
+          </button>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            取消
+          </button>
+        </div>
       </div>
     </div>
   );

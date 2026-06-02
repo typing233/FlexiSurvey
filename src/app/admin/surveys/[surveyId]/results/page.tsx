@@ -29,6 +29,7 @@ export default function ResultsPage() {
   const [tab, setTab] = useState<"stats" | "raw">("stats");
   const [responses, setResponses] = useState<unknown[]>([]);
   const [rawLoading, setRawLoading] = useState(false);
+  const [showExport, setShowExport] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -65,12 +66,20 @@ export default function ResultsPage() {
           <h1 className="text-2xl font-bold">问卷结果</h1>
           <p className="text-sm text-gray-500 mt-1">共收到 {totalResponses} 份回答</p>
         </div>
-        <Link
-          href={`/admin/surveys/${surveyId}`}
-          className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
-        >
-          返回编辑
-        </Link>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowExport(true)}
+            className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+          >
+            导出数据
+          </button>
+          <Link
+            href={`/admin/surveys/${surveyId}`}
+            className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            返回编辑
+          </Link>
+        </div>
       </div>
 
       <div className="flex gap-2 mb-6">
@@ -206,6 +215,116 @@ export default function ResultsPage() {
           )}
         </div>
       )}
+
+      {showExport && (
+        <ExportModal
+          surveyId={surveyId}
+          onClose={() => setShowExport(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function ExportModal({ surveyId, onClose }: { surveyId: string; onClose: () => void }) {
+  const [format, setFormat] = useState<"csv" | "xlsx">("xlsx");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [exporting, setExporting] = useState(false);
+
+  async function handleExport() {
+    setExporting(true);
+    const params = new URLSearchParams();
+    params.set("format", format);
+    if (startDate) params.set("startDate", startDate);
+    if (endDate) params.set("endDate", endDate);
+
+    const url = `/api/surveys/${surveyId}/export?${params.toString()}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      alert("导出失败");
+      setExporting(false);
+      return;
+    }
+
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `responses.${format === "xlsx" ? "xlsx" : "csv"}`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setExporting(false);
+    onClose();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+        <h3 className="text-lg font-semibold mb-4">导出数据</h3>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">导出格式</label>
+            <div className="flex gap-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="format"
+                  checked={format === "xlsx"}
+                  onChange={() => setFormat("xlsx")}
+                  className="w-4 h-4 text-indigo-600"
+                />
+                <span className="text-sm">Excel (.xlsx)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="radio"
+                  name="format"
+                  checked={format === "csv"}
+                  onChange={() => setFormat("csv")}
+                  className="w-4 h-4 text-indigo-600"
+                />
+                <span className="text-sm">CSV (.csv)</span>
+              </label>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">时间范围（可选）</label>
+            <div className="flex gap-2 items-center">
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+              <span className="text-gray-400 text-sm">至</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-3 pt-4 mt-4 border-t">
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {exporting ? "导出中..." : "开始导出"}
+          </button>
+          <button
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            取消
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

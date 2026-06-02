@@ -8,14 +8,16 @@ datasource db {
 }
 
 model Survey {
-  id          String     @id @default(cuid())
-  title       String
-  description String     @default("")
-  status      String     @default("draft")
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-  questions   Question[]
-  responses   Response[]
+  id           String     @id @default(cuid())
+  title        String
+  description  String     @default("")
+  status       String     @default("draft")
+  isPublic     Boolean    @default(true)
+  maxResponses Int?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  questions    Question[]
+  responses    Response[]
 }
 
 model Question {
@@ -30,6 +32,7 @@ model Question {
   updatedAt DateTime         @updatedAt
   options   QuestionOption[]
   answers   Answer[]
+  jumpRules JumpRule[]
 
   @@index([surveyId])
 }
@@ -40,6 +43,17 @@ model QuestionOption {
   question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
   text       String
   order      Int      @default(0)
+
+  @@index([questionId])
+}
+
+model JumpRule {
+  id               String   @id @default(cuid())
+  questionId       String
+  question         Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  optionId         String
+  targetQuestionId String
+  createdAt        DateTime @default(now())
 
   @@index([questionId])
 }

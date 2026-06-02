@@ -18,5 +18,30 @@ export async function PUT(request: NextRequest, { params }: Params) {
     )
   );
 
-  return NextResponse.json({ success: true });
+  const orderMap = new Map<string, number>();
+  orderedIds.forEach((id: string, idx: number) => orderMap.set(id, idx));
+
+  const allRules = await prisma.jumpRule.findMany({
+    where: { question: { surveyId } },
+  });
+
+  const invalidRuleIds = allRules
+    .filter((rule) => {
+      const sourceOrder = orderMap.get(rule.questionId);
+      const targetOrder = orderMap.get(rule.targetQuestionId);
+      if (sourceOrder === undefined || targetOrder === undefined) return true;
+      return targetOrder <= sourceOrder;
+    })
+    .map((r) => r.id);
+
+  if (invalidRuleIds.length > 0) {
+    await prisma.jumpRule.deleteMany({
+      where: { id: { in: invalidRuleIds } },
+    });
+  }
+
+  return NextResponse.json({
+    success: true,
+    invalidatedRules: invalidRuleIds.length,
+  });
 }

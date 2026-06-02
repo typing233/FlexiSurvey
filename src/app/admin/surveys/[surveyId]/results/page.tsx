@@ -230,6 +230,7 @@ function ExportModal({ surveyId, onClose }: { surveyId: string; onClose: () => v
   const [format, setFormat] = useState<"csv" | "xlsx">("xlsx");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [status, setStatus] = useState<"" | "complete" | "partial">("");
   const [exporting, setExporting] = useState(false);
 
   async function handleExport() {
@@ -238,6 +239,7 @@ function ExportModal({ surveyId, onClose }: { surveyId: string; onClose: () => v
     params.set("format", format);
     if (startDate) params.set("startDate", startDate);
     if (endDate) params.set("endDate", endDate);
+    if (status) params.set("status", status);
 
     const url = `/api/surveys/${surveyId}/export?${params.toString()}`;
     const res = await fetch(url);
@@ -306,6 +308,19 @@ function ExportModal({ surveyId, onClose }: { surveyId: string; onClose: () => v
                 className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">完成状态</label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value as "" | "complete" | "partial")}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            >
+              <option value="">全部</option>
+              <option value="complete">完整回答（回答了所有题目）</option>
+              <option value="partial">部分回答（有跳过的题目）</option>
+            </select>
           </div>
         </div>
 

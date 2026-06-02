@@ -32,11 +32,8 @@ export async function GET(request: NextRequest, { params }: Params) {
     if (startDate) (where.submittedAt as Record<string, unknown>).gte = new Date(startDate);
     if (endDate) (where.submittedAt as Record<string, unknown>).lte = new Date(endDate + "T23:59:59.999Z");
   }
-  if (status === "completed") {
-    // All responses in the DB are completed submissions
-  }
 
-  const responses = await prisma.response.findMany({
+  let responses = await prisma.response.findMany({
     where,
     orderBy: { submittedAt: "desc" },
     include: {
@@ -49,6 +46,16 @@ export async function GET(request: NextRequest, { params }: Params) {
       },
     },
   });
+
+  if (status === "complete") {
+    responses = responses.filter(
+      (r) => survey.questions.every((q) => r.answers.some((a) => a.questionId === q.id))
+    );
+  } else if (status === "partial") {
+    responses = responses.filter(
+      (r) => survey.questions.some((q) => !r.answers.some((a) => a.questionId === q.id))
+    );
+  }
 
   const headers = ["序号", "提交时间", "匿名标识", ...survey.questions.map((q) => q.title)];
   const rows = responses.map((resp, idx) => {

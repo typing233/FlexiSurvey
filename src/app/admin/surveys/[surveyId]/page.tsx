@@ -94,7 +94,14 @@ export default function SurveyEditPage() {
   }
 
   async function deleteQuestion(questionId: string) {
-    if (!confirm("确定删除此题目？")) return;
+    const q = survey?.questions.find((qq) => qq.id === questionId);
+    const hasTargetingRules = survey?.questions.some(
+      (qq) => qq.jumpRules.some((r) => r.targetQuestionId === questionId)
+    );
+    const msg = hasTargetingRules
+      ? "该题目被其他题目的跳转规则引用，删除后相关规则将被自动清除。确定删除？"
+      : "确定删除此题目？";
+    if (!confirm(msg)) return;
     await fetch(`/api/surveys/${surveyId}/questions/${questionId}`, { method: "DELETE" });
     fetchSurvey();
   }
@@ -109,11 +116,15 @@ export default function SurveyEditPage() {
       [questions[idx], questions[idx + 1]] = [questions[idx + 1], questions[idx]];
     } else return;
 
-    await fetch(`/api/surveys/${surveyId}/questions/reorder`, {
+    const res = await fetch(`/api/surveys/${surveyId}/questions/reorder`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ orderedIds: questions.map((q) => q.id) }),
     });
+    const json = await res.json();
+    if (json.invalidatedRules > 0) {
+      alert(`排序已更新，${json.invalidatedRules} 条跳转规则因顺序冲突已被自动清除，请检查。`);
+    }
     fetchSurvey();
   }
 

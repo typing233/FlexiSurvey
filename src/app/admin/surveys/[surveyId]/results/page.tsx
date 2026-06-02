@@ -193,7 +193,7 @@ export default function ResultsPage() {
                           {resp.answers.map((a: any) => (
                             <div key={a.id} className="text-xs">
                               <span className="text-gray-500">{a.question.title}:</span>{" "}
-                              <span className="font-medium">{formatAnswer(a.value, a.question.type)}</span>
+                              <span className="font-medium">{formatAnswer(a.value, a.question.type, a.question.options)}</span>
                             </div>
                           ))}
                         </div>
@@ -210,12 +210,21 @@ export default function ResultsPage() {
   );
 }
 
-function formatAnswer(value: string, type: string): string {
+function formatAnswer(value: string, type: string, options: { id: string; text: string }[]): string {
   if (type === "text") return value;
   try {
     const parsed = JSON.parse(value);
-    if (Array.isArray(parsed)) return parsed.length + " 项已选";
-    return "已选择";
+    if (type === "single_choice") {
+      const opt = options.find((o) => o.id === parsed);
+      return opt ? opt.text : value;
+    }
+    if (type === "multiple_choice" && Array.isArray(parsed)) {
+      const texts = parsed
+        .map((id: string) => options.find((o) => o.id === id)?.text)
+        .filter(Boolean);
+      return texts.join("、") || value;
+    }
+    return value;
   } catch {
     return value;
   }

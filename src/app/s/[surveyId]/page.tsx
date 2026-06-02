@@ -68,8 +68,18 @@ export default function SurveyFillPage() {
     for (const q of survey.questions) {
       if (!q.required) continue;
       const val = answers[q.id];
-      if (!val || val === "[]" || val.trim() === "" || val === '""') {
-        newErrors[q.id] = "此题为必填项";
+      if (q.type === "text") {
+        if (!val || val.trim() === "") {
+          newErrors[q.id] = "此题为必填项";
+        }
+      } else if (q.type === "single_choice") {
+        if (!val) {
+          newErrors[q.id] = "请选择一个选项";
+        }
+      } else if (q.type === "multiple_choice") {
+        if (!val || val === "[]") {
+          newErrors[q.id] = "请至少选择一个选项";
+        }
       }
     }
     setErrors(newErrors);

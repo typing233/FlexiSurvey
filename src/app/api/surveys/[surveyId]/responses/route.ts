@@ -18,7 +18,11 @@ export async function GET(request: NextRequest, { params }: Params) {
       take: limit,
       include: {
         answers: {
-          include: { question: { select: { title: true, type: true } } },
+          include: {
+            question: {
+              select: { title: true, type: true, options: { select: { id: true, text: true }, orderBy: { order: "asc" } } },
+            },
+          },
         },
       },
     }),
@@ -55,11 +59,41 @@ export async function POST(request: NextRequest, { params }: Params) {
   const requiredQuestions = survey.questions.filter((q) => q.required);
   for (const q of requiredQuestions) {
     const answer = answers.find((a: { questionId: string }) => a.questionId === q.id);
-    if (!answer || !answer.value || (Array.isArray(JSON.parse(answer.value)) && JSON.parse(answer.value).length === 0)) {
+    if (!answer || !answer.value) {
       return NextResponse.json(
         { success: false, error: `请回答必填题目：${q.title}` },
         { status: 400 }
       );
+    }
+    if (q.type === "text") {
+      if (answer.value.trim() === "") {
+        return NextResponse.json(
+          { success: false, error: `请回答必填题目：${q.title}` },
+          { status: 400 }
+        );
+      }
+    } else if (q.type === "single_choice") {
+      if (!answer.value) {
+        return NextResponse.json(
+          { success: false, error: `请选择一个选项：${q.title}` },
+          { status: 400 }
+        );
+      }
+    } else if (q.type === "multiple_choice") {
+      try {
+        const selected = JSON.parse(answer.value);
+        if (!Array.isArray(selected) || selected.length === 0) {
+          return NextResponse.json(
+            { success: false, error: `请至少选择一个选项：${q.title}` },
+            { status: 400 }
+          );
+        }
+      } catch {
+        return NextResponse.json(
+          { success: false, error: `答案格式无效：${q.title}` },
+          { status: 400 }
+        );
+      }
     }
   }
 
